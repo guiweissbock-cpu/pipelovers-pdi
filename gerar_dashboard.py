@@ -136,6 +136,7 @@ def processar():
     consumo_por_email = defaultdict(list)
     consumo_por_nome  = defaultdict(list)
     empresa_por_email = {}
+    empresa_por_nome  = {}
     nome_por_email    = {}
 
     with open(p_consumo, encoding='utf-8') as f:
@@ -147,9 +148,10 @@ def processar():
             empresa = row.get('company', '').strip()
             if not titulo: continue
             entrada = {
-                'titulo': titulo,
-                'data':   data[:10] if data else '',
-                'mes':    data[:7]  if data else '',
+                'titulo':  titulo,
+                'data':    data[:10] if data else '',
+                'mes':     data[:7]  if data else '',
+                'empresa': empresa,
             }
             if email:
                 consumo_por_email[email].append(entrada)
@@ -158,6 +160,8 @@ def processar():
             if nome:
                 key = re.sub(r'\s+', ' ', nome.strip().lower())
                 consumo_por_nome[key].append(entrada)
+                if empresa and key not in empresa_por_nome:
+                    empresa_por_nome[key] = empresa
 
     print(f"  {len(consumo_por_email):,} usuários únicos")
 
@@ -225,6 +229,16 @@ def processar():
 
     print(f"  {len(pdis_expandidos)} PDIs após expansão de times")
 
+    # ── Enriquecimento via usuarios.csv ──
+    email_to_company = {}  # email -> empresa (da base de usuários)
+    if p_usuarios:
+        with open(p_usuarios, encoding='utf-8') as f:
+            for row in csv.DictReader(f):
+                em = (row.get('Url do E-mail do Membro') or row.get('email') or '').strip().lower()
+                co = (row.get('Nome da Empresa') or row.get('company') or '').strip()
+                if em and co and em not in email_to_company:
+                    email_to_company[em] = co
+
     # ── Cruzar PDIs com consumo ──
     print("\nCruzando dados...")
     dados_finais = []
@@ -242,8 +256,15 @@ def processar():
             email = ''
             norm = re.sub(r'\s+', ' ', key.strip().lower())
             entradas = consumo_por_nome.get(norm, [])
-            empresa  = entradas[0].get('empresa', '') if entradas else '' # type: ignore
+            empresa  = empresa_por_nome.get(norm, '')
             nome_exib = key
+
+        # Enriquecer empresa via usuarios.csv se ainda vazio
+        if not empresa and email and email in email_to_company:
+            empresa = email_to_company[email]
+        if not empresa and email:
+            # tentar pelo nome na base de usuários
+            pass
 
         titulos_consumidos = [e['titulo'] for e in entradas]
         consumo_por_mes = defaultdict(int)
